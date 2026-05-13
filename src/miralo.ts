@@ -20,8 +20,6 @@ app.register(userRoutes)
 app.register(roomRoutes)
 app.register(chatRoutes)
 
-<<<<<<< HEAD
-=======
 app.get('/health', async () => {
   return {
     status: 'ok',
@@ -64,8 +62,6 @@ app.get('/ready', async (request, reply) => {
   }
 })
 
-
->>>>>>> 91c5b0f (feat: add Redis, Docker, WebSocket real-time, and SonarCloud CI/CD)
 const start = async (): Promise<void> => {
   // Usa PORT de Azure y fallback local para desarrollo.
   const port = Number(process.env.PORT ?? 5000)
@@ -73,10 +69,8 @@ const start = async (): Promise<void> => {
 
   try {
     await connectMongo()
-<<<<<<< HEAD
     await app.listen({ port, host })
     console.log(`Servidor corriendo en http://${host}:${port}`)
-=======
 
     try {
       await connectRedis()
@@ -92,7 +86,6 @@ const start = async (): Promise<void> => {
     const port = Number(process.env.PORT ?? 5000)
     await app.listen({ port, host: '0.0.0.0' })
     console.log(`Servidor corriendo en http://localhost:${port}`)
->>>>>>> 91c5b0f (feat: add Redis, Docker, WebSocket real-time, and SonarCloud CI/CD)
   } catch (err) {
     await closeRedis()
     console.error('Error iniciando la aplicación:', err)
@@ -101,9 +94,8 @@ const start = async (): Promise<void> => {
   }
 }
 
-<<<<<<< HEAD
+
 start()
-=======
 const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
   try {
     console.log(`Cerrando servidor por señal ${signal}`)
@@ -125,4 +117,3 @@ process.on('SIGTERM', () => {
 })
 
 start()
->>>>>>> 91c5b0f (feat: add Redis, Docker, WebSocket real-time, and SonarCloud CI/CD)
