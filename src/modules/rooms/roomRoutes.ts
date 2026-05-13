@@ -15,6 +15,9 @@ export default async function roomRoutes(fastify: FastifyInstance) {
     fastify.post('/rooms/:roomId/users/:id/join', controller.joinRoom)
     fastify.post('/rooms/:roomId/users/:id/leave', controller.leaveRoom)
 
+    // Obtener lista de géneros favoritos de los usuarios dentro de una sala
+    fastify.get('/rooms/:roomId/users/genres', controller.getUsersGenres)
+
     fastify.get('/rooms/:roomId/watch-state', controller.getWatchState)
     fastify.patch('/rooms/:roomId/watch-state', controller.updateWatchState)
 

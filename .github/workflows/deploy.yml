@@ -1,11 +1,36 @@
-name: Deploy Node App to Azure Web App
+name: Test + Sonar + Deploy to Azure
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "featureScreen" ]
 
 jobs:
+  test-and-sonar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run test:coverage
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
+
   build-and-deploy:
+    needs: test-and-sonar
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

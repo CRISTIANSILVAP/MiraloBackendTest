@@ -18,11 +18,6 @@ vi.mock('../src/modules/chats/chatService.js', () => ({
   }
 }))
 
-<<<<<<< HEAD
-import roomService from '../src/modules/rooms/roomService.js'
-import roomRepository from '../src/modules/rooms/roomRepository.js'
-import chatService from '../src/modules/chats/chatService.js'
-=======
 vi.mock('../src/modules/users/userRepository.js', () => ({
   default: {
     findById: vi.fn(),
@@ -34,7 +29,6 @@ import roomService from '../src/modules/rooms/roomService.js'
 import roomRepository from '../src/modules/rooms/roomRepository.js'
 import chatService from '../src/modules/chats/chatService.js'
 import userRepository from '../src/modules/users/userRepository.js'
->>>>>>> 91c5b0f (feat: add Redis, Docker, WebSocket real-time, and SonarCloud CI/CD)
 import { AppError } from '../src/shared/appError.js'
 
 const hostId = '507f1f77bcf86cd799439011'
@@ -202,8 +196,6 @@ describe('roomService', () => {
     await expect(roomService.validateJoinEligibility(roomId)).resolves.toEqual(room)
   })
 
-<<<<<<< HEAD
-=======
   it('joinRoomForUser valida ids y usuario', async () => {
     await expect(roomService.joinRoomForUser('123', roomId)).rejects.toMatchObject({ code: 'INVALID_ID' })
     await expect(roomService.joinRoomForUser(hostId, '123')).rejects.toMatchObject({ code: 'INVALID_ID' })
@@ -256,7 +248,6 @@ describe('roomService', () => {
     await expect(roomService.leaveRoomForUser(hostId, roomId)).resolves.toEqual({ ...room, userIds: [] })
   })
 
->>>>>>> 91c5b0f (feat: add Redis, Docker, WebSocket real-time, and SonarCloud CI/CD)
   it('addUser y removeUser validan existencia de sala', async () => {
     vi.mocked(roomRepository.findById).mockResolvedValue(null)
     await expect(roomService.addUser(roomId, hostId)).rejects.toMatchObject({ code: 'ROOM_NOT_FOUND' })

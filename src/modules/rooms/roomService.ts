@@ -177,6 +177,54 @@ const roomService = {
         return room.playback
     },
 
+    /**
+     * Devuelve para cada usuario de la sala su "género favorito".
+     * Definimos el género favorito de un usuario como el que más aparece en su
+     * lista `favoriteGenres`. Si la lista está vacía, se devuelve null.
+     * Resultado: Array<{ userId: string, favoriteGenre: string | null }>
+     */
+    getUsersGenres: async (roomId: string): Promise<{ userId: string; favoriteGenre: string | null }[]> => {
+        const room = await roomRepository.findById(roomId)
+        if (!room) throw new AppError(404, 'ROOM_NOT_FOUND', 'Sala no encontrada')
+
+        // Traer todos los usuarios en paralelo (manteniendo el orden de userIds)
+        const users = await Promise.all(room.userIds.map((id) => userRepository.findById(id)))
+
+        const result: { userId: string; favoriteGenre: string | null }[] = []
+
+        for (let i = 0; i < room.userIds.length; i++) {
+            // Afirmamos que el índice existe (no null/undefined) porque el bucle
+            // itera hasta room.userIds.length
+            const userId = room.userIds[i]!
+            const user = users[i]
+
+            if (!user || !Array.isArray(user.favoriteGenres) || user.favoriteGenres.length === 0) {
+                result.push({ userId, favoriteGenre: null })
+                continue
+            }
+
+            // Calcular frecuencia por género dentro del usuario
+            const counts: Record<string, number> = {}
+            for (const g of user.favoriteGenres) {
+                counts[g] = (counts[g] || 0) + 1
+            }
+
+            // Seleccionar el género con mayor frecuencia; en empate se elige el primero encontrado
+            let topGenre: string | null = null
+            let topCount = -1
+            for (const [g, c] of Object.entries(counts)) {
+                if (c > topCount) {
+                    topCount = c
+                    topGenre = g
+                }
+            }
+
+            result.push({ userId, favoriteGenre: topGenre })
+        }
+
+        return result
+    },
+
     updateWatchState: async (roomId: string, userId: string, input: UpdateWatchStateInput): Promise<PlaybackState> => {
         const room = await roomService.ensureUserInRoom(roomId, userId)
 

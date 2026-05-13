@@ -11,34 +11,10 @@ vi.mock('../src/modules/users/userRepository.js', () => ({
   }
 }))
 
-<<<<<<< HEAD
-vi.mock('../src/modules/rooms/roomService.js', () => ({
-  default: {
-    validateJoinEligibility: vi.fn(),
-    addUser: vi.fn(),
-    removeUser: vi.fn()
-  }
-}))
-
-vi.mock('../src/modules/chats/chatService.js', () => ({
-  default: {
-    getOrCreateChat: vi.fn()
-  }
-}))
-
-import userService from '../src/modules/users/userService.js'
-import userRepository from '../src/modules/users/userRepository.js'
-import roomService from '../src/modules/rooms/roomService.js'
-import chatService from '../src/modules/chats/chatService.js'
-
-const userId = '507f1f77bcf86cd799439021'
-const roomId = '507f1f77bcf86cd799439022'
-=======
 import userService from '../src/modules/users/userService.js'
 import userRepository from '../src/modules/users/userRepository.js'
 
 const userId = '507f1f77bcf86cd799439021'
->>>>>>> 91c5b0f (feat: add Redis, Docker, WebSocket real-time, and SonarCloud CI/CD)
 
 const userFixture = () => ({
   id: userId,
@@ -145,81 +121,5 @@ describe('userService', () => {
     await expect(userService.deleteUser(userId)).rejects.toMatchObject({ code: 'USER_NOT_FOUND' })
   })
 
-<<<<<<< HEAD
-  it('joinRoomForUser valida usuario y retorna room+chat', async () => {
-    const user = userFixture()
-    const room = {
-      id: roomId,
-      name: 'room',
-      isPrivate: false,
-      accessCode: '',
-      maxUsers: 5,
-      hostId: userId,
-      userIds: [userId],
-      chatId: '507f1f77bcf86cd799439023',
-      state: 'waiting' as const,
-      genres: 'other' as const,
-      contentUrl: 'https://example.com',
-      playback: {
-        isPlaying: false,
-        positionMs: 0,
-        updatedAt: new Date(),
-        updatedBy: userId,
-        version: 0
-      },
-      createdAt: new Date(),
-      updatedAt: new Date()
-    }
-
-    vi.mocked(userRepository.findById).mockResolvedValue(user)
-    vi.mocked(roomService.validateJoinEligibility).mockResolvedValue(room)
-    vi.mocked(roomService.addUser).mockResolvedValue(room)
-    vi.mocked(chatService.getOrCreateChat).mockResolvedValue({ id: '507f1f77bcf86cd799439023' } as never)
-
-    const result = await userService.joinRoomForUser(userId, roomId, ' 1234 ')
-
-    expect(roomService.validateJoinEligibility).toHaveBeenCalledWith(roomId, '1234')
-    expect(result.room).toEqual(room)
-    expect(result.chat.id).toBe('507f1f77bcf86cd799439023')
-  })
-
-  it('joinRoomForUser falla si usuario no existe', async () => {
-    vi.mocked(userRepository.findById).mockResolvedValue(null)
-    await expect(userService.joinRoomForUser(userId, roomId)).rejects.toMatchObject({ code: 'USER_NOT_FOUND' })
-  })
-
-  it('leaveRoomForUser remueve usuario de la sala', async () => {
-    const user = userFixture()
-    const room = {
-      id: roomId,
-      name: 'room',
-      isPrivate: false,
-      accessCode: '',
-      maxUsers: 5,
-      hostId: userId,
-      userIds: [],
-      chatId: '507f1f77bcf86cd799439023',
-      state: 'waiting' as const,
-      genres: 'other' as const,
-      contentUrl: 'https://example.com',
-      playback: {
-        isPlaying: false,
-        positionMs: 0,
-        updatedAt: new Date(),
-        updatedBy: userId,
-        version: 0
-      },
-      createdAt: new Date(),
-      updatedAt: new Date()
-    }
-
-    vi.mocked(userRepository.findById).mockResolvedValue(user)
-    vi.mocked(roomService.removeUser).mockResolvedValue(room)
-
-    await expect(userService.leaveRoomForUser(userId, roomId)).resolves.toEqual(room)
-    expect(roomService.removeUser).toHaveBeenCalledWith(roomId, userId)
-  })
-=======
->>>>>>> 91c5b0f (feat: add Redis, Docker, WebSocket real-time, and SonarCloud CI/CD)
 })
 

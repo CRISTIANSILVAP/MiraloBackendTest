@@ -114,6 +114,20 @@ export default class RoomController {
         }
     }
 
+    getUsersGenres = async (
+        request: FastifyRequest<{ Params: RoomParams }>,
+        reply: FastifyReply
+    ): Promise<void> => {
+        try {
+            const roomId = String(request.params.roomId)
+            const data = await this.roomService.getUsersGenres(roomId)
+            // Devolver en formato { userId, favoriteGenre }
+            reply.code(200).send(data)
+        } catch (error) {
+            this.handleError(error, reply)
+        }
+    }
+
     private handleError(error: unknown, reply: FastifyReply): void {
         if (error instanceof AppError) {
             reply.code(error.statusCode).send({
