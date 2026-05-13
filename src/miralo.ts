@@ -62,15 +62,10 @@ app.get('/ready', async (request, reply) => {
   }
 })
 
-const start = async (): Promise<void> => {
-  // Usa PORT de Azure y fallback local para desarrollo.
-  const port = Number(process.env.PORT ?? 5000)
-  const host = '0.0.0.0'
 
+const start = async (): Promise<void> => {
   try {
     await connectMongo()
-    await app.listen({ port, host })
-    console.log(`Servidor corriendo en http://${host}:${port}`)
 
     try {
       await connectRedis()
@@ -94,8 +89,6 @@ const start = async (): Promise<void> => {
   }
 }
 
-
-start()
 const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
   try {
     console.log(`Cerrando servidor por señal ${signal}`)
