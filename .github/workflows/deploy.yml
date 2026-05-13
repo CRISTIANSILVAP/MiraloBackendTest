@@ -1,12 +1,11 @@
-name: Test + Sonar + Deploy to Azure
+name: Deploy Node App to Azure Web App
 
 on:
   push:
-    branches: [ "featureScreen" ]
+    branches: [ "main" ]
 
 jobs:
   build-and-deploy:
-    needs: test-and-sonar
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
