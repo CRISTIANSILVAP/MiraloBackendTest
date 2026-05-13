@@ -1,0 +1,39 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: miralo-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis-data:/data
+    networks:
+      - miralo-net
+
+  app:
+    image: miralo-backend:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: miralo-app
+    restart: unless-stopped
+    depends_on:
+      - redis
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      # Dentro de Docker, el host de Redis es el nombre del servicio
+      - REDIS_URL=redis://redis:6379
+      - MONGODB_URI=${MONGODB_URI}
+      - JWT_SECRET=${JWT_SECRET}
+      - WATCH_SYNC_MODE=${WATCH_SYNC_MODE:-redis-with-fallback}
+      - PORT=5000
+    networks:
+      - miralo-net
+
+networks:
+  miralo-net:
+    driver: bridge
+
