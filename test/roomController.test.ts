@@ -47,6 +47,7 @@ describe('RoomController', () => {
   beforeEach(() => {
     mockRoomService = {
       getRooms: vi.fn(),
+      getRoomById: vi.fn(),
       createRoom: vi.fn(),
       joinRoomForUser: vi.fn(),
       leaveRoomForUser: vi.fn(),
@@ -392,6 +393,7 @@ describe('RoomController', () => {
       const reply = mockReply()
       const updatedRoom = { ...roomFixture, name: 'Updated Room', maxUsers: 10 }
 
+      mockRoomService.getRoomById.mockResolvedValue(roomFixture)
       mockRoomService.updateRoom.mockResolvedValue(updatedRoom)
 
       // Mock the user in request
@@ -399,6 +401,7 @@ describe('RoomController', () => {
 
       await controller.updateRoom(request, reply)
 
+      expect(mockRoomService.getRoomById).toHaveBeenCalledWith('507f1f77bcf86cd799439012')
       expect(mockRoomService.updateRoom).toHaveBeenCalledWith(
         '507f1f77bcf86cd799439012',
         '507f1f77bcf86cd799439011',
@@ -436,6 +439,7 @@ describe('RoomController', () => {
       const reply = mockReply()
       ;(request as any).user = { id: '507f1f77bcf86cd799439011' }
 
+      mockRoomService.getRoomById.mockResolvedValue(roomFixture)
       mockRoomService.updateRoom.mockRejectedValue(
         new AppError(403, 'ROOM_FORBIDDEN', 'Solo el host puede actualizar la sala')
       )
@@ -446,6 +450,26 @@ describe('RoomController', () => {
       expect(reply.send).toHaveBeenCalledWith({
         code: 'ROOM_FORBIDDEN',
         message: 'Solo el host puede actualizar la sala'
+      })
+    })
+
+    it('returns 403 if authenticated user is not host', async () => {
+      const request = mockRequest({
+        params: { roomId: '507f1f77bcf86cd799439012' },
+        body: { name: 'Updated Room' },
+        user: { id: '507f1f77bcf86cd799439099' }
+      })
+      const reply = mockReply()
+
+      mockRoomService.getRoomById.mockResolvedValue(roomFixture)
+
+      await controller.updateRoom(request, reply)
+
+      expect(mockRoomService.updateRoom).not.toHaveBeenCalled()
+      expect(reply.code).toHaveBeenCalledWith(403)
+      expect(reply.send).toHaveBeenCalledWith({
+        code: 'ROOM_FORBIDDEN',
+        message: 'Solo el host puede modificar la sala'
       })
     })
   })
@@ -459,10 +483,12 @@ describe('RoomController', () => {
       const reply = mockReply()
       ;(request as any).user = { id: '507f1f77bcf86cd799439011' }
 
+      mockRoomService.getRoomById.mockResolvedValue(roomFixture)
       mockRoomService.deleteRoom.mockResolvedValue(undefined)
 
       await controller.deleteRoom(request, reply)
 
+      expect(mockRoomService.getRoomById).toHaveBeenCalledWith('507f1f77bcf86cd799439012')
       expect(mockRoomService.deleteRoom).toHaveBeenCalledWith(
         '507f1f77bcf86cd799439012',
         '507f1f77bcf86cd799439011'
@@ -494,6 +520,7 @@ describe('RoomController', () => {
       const reply = mockReply()
       ;(request as any).user = { id: '507f1f77bcf86cd799439011' }
 
+      mockRoomService.getRoomById.mockResolvedValue(roomFixture)
       mockRoomService.deleteRoom.mockRejectedValue(
         new AppError(403, 'ROOM_FORBIDDEN', 'Solo el host puede eliminar la sala')
       )
@@ -515,6 +542,7 @@ describe('RoomController', () => {
       const reply = mockReply()
       ;(request as any).user = { id: '507f1f77bcf86cd799439011' }
 
+      mockRoomService.getRoomById.mockResolvedValue(roomFixture)
       mockRoomService.deleteRoom.mockRejectedValue(
         new AppError(404, 'ROOM_NOT_FOUND', 'Sala no encontrada')
       )
@@ -525,6 +553,25 @@ describe('RoomController', () => {
       expect(reply.send).toHaveBeenCalledWith({
         code: 'ROOM_NOT_FOUND',
         message: 'Sala no encontrada'
+      })
+    })
+
+    it('returns 403 if authenticated user is not host', async () => {
+      const request = mockRequest({
+        params: { roomId: '507f1f77bcf86cd799439012' },
+        user: { id: '507f1f77bcf86cd799439099' }
+      })
+      const reply = mockReply()
+
+      mockRoomService.getRoomById.mockResolvedValue(roomFixture)
+
+      await controller.deleteRoom(request, reply)
+
+      expect(mockRoomService.deleteRoom).not.toHaveBeenCalled()
+      expect(reply.code).toHaveBeenCalledWith(403)
+      expect(reply.send).toHaveBeenCalledWith({
+        code: 'ROOM_FORBIDDEN',
+        message: 'Solo el host puede modificar la sala'
       })
     })
   })

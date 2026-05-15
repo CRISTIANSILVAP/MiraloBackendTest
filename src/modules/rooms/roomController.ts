@@ -144,11 +144,9 @@ export default class RoomController {
     ): Promise<void> => {
         try {
             const roomId = String(request.params.roomId)
-            const userId = (request as any).user?.id
+            const userId = this.getAuthenticatedUserId(request)
 
-            if (!userId) {
-                throw new AppError(401, 'UNAUTHORIZED', 'Debe estar autenticado')
-            }
+            await this.ensureRoomHost(roomId, userId)
 
             const room = await this.roomService.updateRoom(roomId, userId, request.body)
             reply.code(200).send(room)
@@ -163,16 +161,32 @@ export default class RoomController {
     ): Promise<void> => {
         try {
             const roomId = String(request.params.roomId)
-            const userId = (request as any).user?.id
+            const userId = this.getAuthenticatedUserId(request)
 
-            if (!userId) {
-                throw new AppError(401, 'UNAUTHORIZED', 'Debe estar autenticado')
-            }
+            await this.ensureRoomHost(roomId, userId)
 
             await this.roomService.deleteRoom(roomId, userId)
             reply.code(204).send()
         } catch (error) {
             this.handleError(error, reply)
+        }
+    }
+
+    private getAuthenticatedUserId(request: FastifyRequest): string {
+        const userId = String((request as any).user?.id ?? '').trim()
+
+        if (!userId) {
+            throw new AppError(401, 'UNAUTHORIZED', 'Debe estar autenticado')
+        }
+
+        return userId
+    }
+
+    private async ensureRoomHost(roomId: string, userId: string): Promise<void> {
+        const room = await this.roomService.getRoomById(roomId)
+
+        if (room.hostId !== userId) {
+            throw new AppError(403, 'ROOM_FORBIDDEN', 'Solo el host puede modificar la sala')
         }
     }
 
