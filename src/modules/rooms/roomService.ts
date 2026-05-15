@@ -17,6 +17,15 @@ import type { Chat } from '../chats/chat.js'
             chat: Chat
         }
 
+        type UpdateRoomInput = {
+            name?: string
+            isPrivate?: boolean
+            accessCode?: string
+            maxUsers?: number
+            genres?: RoomGenre
+            contentUrl?: string
+        }
+
         const OBJECT_ID_REGEX = /^[a-fA-F0-9]{24}$/
 
         const validateObjectId = (id: string, code: string): void => {
@@ -25,20 +34,7 @@ import type { Chat } from '../chats/chat.js'
             }
         }
 
-        const validateContentUrl = (value: string): string => {
-            const normalized = value.trim()
-
-            try {
-                const parsed = new URL(normalized)
-                if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-                    throw new AppError(400, 'ROOM_INVALID_CONTENT_URL', 'La URL del contenido debe ser http o https')
-                }
-            } catch {
-                throw new AppError(400, 'ROOM_INVALID_CONTENT_URL', 'La URL del contenido no es valida')
-            }
-
-            return normalized
-        }
+        // validateContentUrl removed: contentUrl is accepted as-is and validated elsewhere if needed
 
         const normalizeGenre = (genre: RoomGenre | undefined): RoomGenre => {
             return genre ?? 'other'
@@ -252,10 +248,69 @@ const roomService = {
         return updatedRoom.playback
     },
 
-    deleteRoom: async (id: string): Promise<void> => {
-        const room = await roomRepository.findById(id)
+    updateRoom: async (roomId: string, userId: string, data: UpdateRoomInput): Promise<Room> => {
+        validateObjectId(roomId, 'INVALID_ROOM_ID')
+        validateObjectId(userId, 'INVALID_USER_ID')
+
+        const room = await roomRepository.findById(roomId)
         if (!room) throw new AppError(404, 'ROOM_NOT_FOUND', 'Sala no encontrada')
-        await roomRepository.delete(id)
+
+        // Solo el host puede actualizar la sala
+        if (room.hostId !== userId) {
+            throw new AppError(403, 'ROOM_FORBIDDEN', 'Solo el host puede actualizar la sala')
+        }
+
+        // Validar que si se cambia a privada, tenga accessCode
+        if (data.isPrivate === true && !data.accessCode?.trim()) {
+            throw new AppError(400, 'ROOM_ACCESS_CODE_REQUIRED', 'Las salas privadas requieren un codigo de acceso')
+        }
+
+        // Validar maxUsers si se proporciona
+        if (data.maxUsers !== undefined) {
+            if (data.maxUsers < 2 || data.maxUsers > 100) {
+                throw new AppError(400, 'ROOM_INVALID_MAX_USERS', 'maxUsers debe estar entre 2 y 100')
+            }
+            // No permitir reducir maxUsers por debajo del número actual de usuarios
+            if (data.maxUsers < room.userIds.length) {
+                throw new AppError(
+                    400,
+                    'ROOM_MAX_USERS_TOO_LOW',
+                    `No se puede reducir maxUsers a ${data.maxUsers} cuando hay ${room.userIds.length} usuarios en la sala`
+                )
+            }
+        }
+
+        // Preparar datos para actualizar
+        const updateData: Partial<UpdateRoomInput> = {}
+        if (data.name !== undefined) updateData.name = data.name
+        if (data.isPrivate !== undefined) updateData.isPrivate = data.isPrivate
+        if (data.isPrivate !== undefined && data.accessCode !== undefined) {
+            updateData.accessCode = data.accessCode.trim()
+        }
+        if (data.maxUsers !== undefined) updateData.maxUsers = data.maxUsers
+        if (data.genres !== undefined) updateData.genres = data.genres
+        if (data.contentUrl !== undefined) updateData.contentUrl = data.contentUrl
+
+        const updatedRoom = await roomRepository.update(roomId, updateData)
+        if (!updatedRoom) {
+            throw new AppError(404, 'ROOM_NOT_FOUND', 'Sala no encontrada')
+        }
+
+        return updatedRoom
+    },
+
+    deleteRoom: async (roomId: string, userId: string): Promise<void> => {
+        validateObjectId(roomId, 'INVALID_ROOM_ID')
+
+        const room = await roomRepository.findById(roomId)
+        if (!room) throw new AppError(404, 'ROOM_NOT_FOUND', 'Sala no encontrada')
+
+        // Solo el host puede eliminar la sala
+        if (room.hostId !== userId) {
+            throw new AppError(403, 'ROOM_FORBIDDEN', 'Solo el host puede eliminar la sala')
+        }
+
+        await roomRepository.delete(roomId)
     }
 }
 

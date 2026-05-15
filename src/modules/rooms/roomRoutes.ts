@@ -18,6 +18,11 @@ export default async function roomRoutes(fastify: FastifyInstance) {
     // Obtener lista de géneros favoritos de los usuarios dentro de una sala
     fastify.get('/rooms/:roomId/users/genres', controller.getUsersGenres)
 
+    // Actualizar datos genéricos de la sala (solo el host)
+    fastify.patch('/rooms/:roomId', controller.updateRoom)
+
+    fastify.delete('/rooms/:roomId', controller.deleteRoom)
+
     fastify.get('/rooms/:roomId/watch-state', controller.getWatchState)
     fastify.patch('/rooms/:roomId/watch-state', controller.updateWatchState)
 

@@ -14,6 +14,11 @@ const getRedisUrl = (): string => {
   return process.env.REDIS_URL ?? 'redis://127.0.0.1:6379'
 }
 
+const sanitizeRedisUrl = (url: string): string => {
+  // Oculta la contraseña para logs seguros
+  return url.replace(/(:\/\/).*?(@)/, '$1***:***$2')
+}
+
 const configureRedisErrorLogs = (client: RedisClient, name: string): void => {
   client.on('error', (error: unknown) => {
     console.error(`[redis:${name}]`, error)
@@ -50,7 +55,12 @@ export const connectRedis = async (): Promise<void> => {
     return connectionPromise
   }
 
+  const redisUrl = getRedisUrl()
+  const sanitizedUrl = sanitizeRedisUrl(redisUrl)
+
   connectionStatus = 'connecting'
+  console.log(`[redis] Intentando conectar a: ${sanitizedUrl}`)
+
   connectionPromise = (async () => {
     const { publisher, subscriber } = createRedisClients()
 
@@ -59,11 +69,14 @@ export const connectRedis = async (): Promise<void> => {
       publisherClient = publisher
       subscriberClient = subscriber
       connectionStatus = 'connected'
+      console.log(`[redis] ✓ Conexión exitosa a: ${sanitizedUrl}`)
       console.log('[redis] Conectado para Pub/Sub')
     } catch (error) {
       connectionStatus = 'error'
       publisherClient = null
       subscriberClient = null
+
+      console.error(`[redis] ✗ Error conectando a ${sanitizedUrl}:`, error)
 
       try {
         if (publisher.isOpen) {

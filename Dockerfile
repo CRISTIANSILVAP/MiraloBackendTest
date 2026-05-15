@@ -20,7 +20,7 @@ RUN npm ci --only=production
 
 # Copia build desde el stage builder
 COPY --from=builder /usr/src/app/dist ./dist
-COPY public ./public
+
 
 # Puerto interno usado por la app (coincide con PORT/WEBSITES_PORT)
 ENV PORT=5000

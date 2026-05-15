@@ -128,6 +128,54 @@ export default class RoomController {
         }
     }
 
+    updateRoom = async (
+        request: FastifyRequest<{
+            Params: RoomParams
+            Body: {
+                name?: string
+                isPrivate?: boolean
+                accessCode?: string
+                maxUsers?: number
+                genres?: RoomGenre
+                contentUrl?: string
+            }
+        }>,
+        reply: FastifyReply
+    ): Promise<void> => {
+        try {
+            const roomId = String(request.params.roomId)
+            const userId = (request as any).user?.id
+
+            if (!userId) {
+                throw new AppError(401, 'UNAUTHORIZED', 'Debe estar autenticado')
+            }
+
+            const room = await this.roomService.updateRoom(roomId, userId, request.body)
+            reply.code(200).send(room)
+        } catch (error) {
+            this.handleError(error, reply)
+        }
+    }
+
+    deleteRoom = async (
+        request: FastifyRequest<{ Params: RoomParams }>,
+        reply: FastifyReply
+    ): Promise<void> => {
+        try {
+            const roomId = String(request.params.roomId)
+            const userId = (request as any).user?.id
+
+            if (!userId) {
+                throw new AppError(401, 'UNAUTHORIZED', 'Debe estar autenticado')
+            }
+
+            await this.roomService.deleteRoom(roomId, userId)
+            reply.code(204).send()
+        } catch (error) {
+            this.handleError(error, reply)
+        }
+    }
+
     private handleError(error: unknown, reply: FastifyReply): void {
         if (error instanceof AppError) {
             reply.code(error.statusCode).send({

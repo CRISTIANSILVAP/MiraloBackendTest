@@ -279,6 +279,57 @@ describe('roomService', () => {
     await expect(roomService.getWatchState(roomId)).rejects.toMatchObject({ code: 'ROOM_NOT_FOUND' })
   })
 
+  it('getUsersGenres lanza ROOM_NOT_FOUND si la sala no existe', async () => {
+    vi.mocked(roomRepository.findById).mockResolvedValue(null)
+
+    await expect(roomService.getUsersGenres(roomId)).rejects.toMatchObject({ code: 'ROOM_NOT_FOUND' })
+  })
+
+  it('getUsersGenres conserva el orden y calcula el genero favorito por usuario', async () => {
+    const room = {
+      ...createRoomFixture(),
+      userIds: [hostId, '507f1f77bcf86cd799439014', '507f1f77bcf86cd799439015', '507f1f77bcf86cd799439016']
+    }
+
+    vi.mocked(roomRepository.findById).mockResolvedValue(room)
+    vi.mocked(userRepository.findById)
+      .mockResolvedValueOnce({
+        id: hostId,
+        googleId: 'google-1',
+        name: 'Alice',
+        email: 'alice@example.com',
+        favoriteGenres: ['action', 'action', 'comedy'],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      })
+      .mockResolvedValueOnce({
+        id: '507f1f77bcf86cd799439014',
+        googleId: 'google-2',
+        name: 'Bob',
+        email: 'bob@example.com',
+        favoriteGenres: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: '507f1f77bcf86cd799439016',
+        googleId: 'google-4',
+        name: 'Diana',
+        email: 'diana@example.com',
+        favoriteGenres: ['thriller', 'comedy', 'thriller', 'comedy'],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      })
+
+    await expect(roomService.getUsersGenres(roomId)).resolves.toEqual([
+      { userId: hostId, favoriteGenre: 'action' },
+      { userId: '507f1f77bcf86cd799439014', favoriteGenre: null },
+      { userId: '507f1f77bcf86cd799439015', favoriteGenre: null },
+      { userId: '507f1f77bcf86cd799439016', favoriteGenre: 'thriller' }
+    ])
+  })
+
   it('updateWatchState valida posicion y actualiza reproduccion', async () => {
     const room = createRoomFixture()
     vi.mocked(roomRepository.findById).mockResolvedValue(room)
@@ -357,12 +408,12 @@ describe('roomService', () => {
 
   it('deleteRoom valida existencia y elimina', async () => {
     vi.mocked(roomRepository.findById).mockResolvedValue(null)
-    await expect(roomService.deleteRoom(roomId)).rejects.toMatchObject({ code: 'ROOM_NOT_FOUND' })
+    await expect(roomService.deleteRoom(roomId, hostId)).rejects.toMatchObject({ code: 'ROOM_NOT_FOUND' })
 
     vi.mocked(roomRepository.findById).mockResolvedValue(createRoomFixture())
     vi.mocked(roomRepository.delete).mockResolvedValue(true)
 
-    await expect(roomService.deleteRoom(roomId)).resolves.toBeUndefined()
+    await expect(roomService.deleteRoom(roomId, hostId)).resolves.toBeUndefined()
     expect(roomRepository.delete).toHaveBeenCalledWith(roomId)
   })
 
@@ -370,5 +421,229 @@ describe('roomService', () => {
     const error = new AppError(400, 'X', 'Y')
     expect(error.code).toBe('X')
   })
-})
 
+  it('getRoomById retorna la room cuando existe', async () => {
+    const room = createRoomFixture()
+    vi.mocked(roomRepository.findById).mockResolvedValue(room)
+
+    await expect(roomService.getRoomById(roomId)).resolves.toEqual(room)
+  })
+
+  it('createRoom normaliza genres indefinido a "other"', async () => {
+    const createdRoom = createRoomFixture()
+    const linkedRoom = { ...createdRoom, chatId: '507f1f77bcf86cd799439013' }
+
+    vi.mocked(roomRepository.create).mockResolvedValue(createdRoom)
+    vi.mocked(chatService.getOrCreateChat).mockResolvedValue({ id: '507f1f77bcf86cd799439013' } as never)
+    vi.mocked(roomRepository.update).mockResolvedValue(linkedRoom)
+
+    // Usamos any para poder omitir la propiedad types criptas en el literal
+    await roomService.createRoom({
+      name: 'Room',
+      isPrivate: false,
+      accessCode: '  ',
+      maxUsers: 6,
+      hostId,
+      genres: undefined,
+      contentUrl: 'https://example.com/watch'
+    } as any)
+
+    expect(roomRepository.create).toHaveBeenCalledWith(expect.objectContaining({ genres: 'other' }))
+  })
+
+  it('joinRoomForUser lanza USER_NOT_FOUND si addFavoriteGenre devuelve null', async () => {
+    const room = createRoomFixture()
+    const user = { id: hostId } as any
+
+    vi.mocked(userRepository.findById).mockResolvedValue(user)
+    vi.mocked(roomRepository.findById).mockResolvedValue(room)
+    vi.mocked(roomRepository.addUser).mockResolvedValue(room)
+    vi.mocked(userRepository.addFavoriteGenre).mockResolvedValue(null)
+    vi.mocked(chatService.getOrCreateChat).mockResolvedValue({ id: '507f1f77bcf86cd799439013' } as never)
+
+    await expect(roomService.joinRoomForUser(hostId, roomId)).rejects.toMatchObject({ code: 'USER_NOT_FOUND' })
+  })
+
+  it('leaveRoomForUser lanza USER_NOT_FOUND si usuario no existe', async () => {
+    vi.mocked(userRepository.findById).mockResolvedValue(null)
+    await expect(roomService.leaveRoomForUser(hostId, roomId)).rejects.toMatchObject({ code: 'USER_NOT_FOUND' })
+  })
+
+  it('addUser y removeUser lanzan si repo retorna null', async () => {
+    const room = createRoomFixture()
+    vi.mocked(roomRepository.findById).mockResolvedValue(room)
+
+    vi.mocked(roomRepository.addUser).mockResolvedValue(null)
+    await expect(roomService.addUser(roomId, hostId)).rejects.toMatchObject({ code: 'ROOM_NOT_FOUND' })
+
+    vi.mocked(roomRepository.removeUser).mockResolvedValue(null)
+    await expect(roomService.removeUser(roomId, hostId)).rejects.toMatchObject({ code: 'ROOM_NOT_FOUND' })
+  })
+
+  it('getWatchState retorna playback cuando existe', async () => {
+    const room = createRoomFixture()
+    vi.mocked(roomRepository.findById).mockResolvedValue(room)
+
+    await expect(roomService.getWatchState(roomId)).resolves.toEqual(room.playback)
+  })
+
+  it('updateRoom lanza ROOM_NOT_FOUND si la sala no existe', async () => {
+    vi.mocked(roomRepository.findById).mockResolvedValue(null)
+
+    await expect(roomService.updateRoom(roomId, hostId, { name: 'New Name' })).rejects.toMatchObject({
+      code: 'ROOM_NOT_FOUND'
+    })
+  })
+
+  it('updateRoom lanza ROOM_FORBIDDEN si no es el host', async () => {
+    const room = createRoomFixture()
+    const otherUserId = '507f1f77bcf86cd799439099'
+
+    vi.mocked(roomRepository.findById).mockResolvedValue(room)
+
+    await expect(roomService.updateRoom(roomId, otherUserId, { name: 'Hack' })).rejects.toMatchObject({
+      code: 'ROOM_FORBIDDEN'
+    })
+  })
+
+  it('updateRoom exige accessCode si se cambia a privada', async () => {
+    const room = createRoomFixture()
+    vi.mocked(roomRepository.findById).mockResolvedValue(room)
+
+    await expect(roomService.updateRoom(roomId, hostId, { isPrivate: true, accessCode: '   ' })).rejects.toMatchObject({
+      code: 'ROOM_ACCESS_CODE_REQUIRED'
+    })
+  })
+
+  it('updateRoom valida maxUsers', async () => {
+    const room = createRoomFixture()
+    vi.mocked(roomRepository.findById).mockResolvedValue(room)
+
+    await expect(roomService.updateRoom(roomId, hostId, { maxUsers: 1 })).rejects.toMatchObject({
+      code: 'ROOM_INVALID_MAX_USERS'
+    })
+
+    await expect(roomService.updateRoom(roomId, hostId, { maxUsers: 101 })).rejects.toMatchObject({
+      code: 'ROOM_INVALID_MAX_USERS'
+    })
+  })
+
+  it('updateRoom no permite reducir maxUsers por debajo del numero de usuarios actuales', async () => {
+    const room = {
+      ...createRoomFixture(),
+      userIds: [hostId, '507f1f77bcf86cd799439014', '507f1f77bcf86cd799439015']
+    }
+    vi.mocked(roomRepository.findById).mockResolvedValue(room)
+
+    await expect(roomService.updateRoom(roomId, hostId, { maxUsers: 2 })).rejects.toMatchObject({
+      code: 'ROOM_MAX_USERS_TOO_LOW'
+    })
+  })
+
+  it('updateRoom actualiza nombre, privacidad, maxUsers, genero y contentUrl', async () => {
+    const room = createRoomFixture()
+    const updated = {
+      ...room,
+      name: 'Updated Room',
+      isPrivate: true,
+      accessCode: 'secret123',
+      maxUsers: 10,
+      genres: 'horror' as const,
+      contentUrl: 'https://example.com/new-video'
+    }
+
+    vi.mocked(roomRepository.findById).mockResolvedValue(room)
+    vi.mocked(roomRepository.update).mockResolvedValue(updated)
+
+    const result = await roomService.updateRoom(roomId, hostId, {
+      name: 'Updated Room',
+      isPrivate: true,
+      accessCode: 'secret123',
+      maxUsers: 10,
+      genres: 'horror',
+      contentUrl: 'https://example.com/new-video'
+    })
+
+    expect(roomRepository.update).toHaveBeenCalledWith(roomId, {
+      name: 'Updated Room',
+      isPrivate: true,
+      accessCode: 'secret123',
+      maxUsers: 10,
+      genres: 'horror',
+      contentUrl: 'https://example.com/new-video'
+    })
+    expect(result).toEqual(updated)
+  })
+
+  it('updateRoom solo actualiza campos proporcionados', async () => {
+    const room = createRoomFixture()
+    const updated = { ...room, name: 'Just Name Changed' }
+
+    vi.mocked(roomRepository.findById).mockResolvedValue(room)
+    vi.mocked(roomRepository.update).mockResolvedValue(updated)
+
+    await roomService.updateRoom(roomId, hostId, { name: 'Just Name Changed' })
+
+    expect(roomRepository.update).toHaveBeenCalledWith(roomId, {
+      name: 'Just Name Changed'
+    })
+  })
+
+  it('updateRoom valida roomId y userId como ObjectId', async () => {
+    await expect(roomService.updateRoom('123', hostId, { name: 'x' })).rejects.toMatchObject({
+      code: 'INVALID_ROOM_ID'
+    })
+
+    vi.mocked(roomRepository.findById).mockResolvedValue(createRoomFixture())
+    await expect(roomService.updateRoom(roomId, '123', { name: 'x' })).rejects.toMatchObject({
+      code: 'INVALID_USER_ID'
+    })
+  })
+
+   it('updateRoom retorna error si update falla', async () => {
+     vi.mocked(roomRepository.findById).mockResolvedValue(createRoomFixture())
+     vi.mocked(roomRepository.update).mockResolvedValue(null)
+
+     await expect(roomService.updateRoom(roomId, hostId, { name: 'x' })).rejects.toMatchObject({
+       code: 'ROOM_NOT_FOUND'
+     })
+   })
+
+   it('deleteRoom lanza ROOM_NOT_FOUND si la sala no existe', async () => {
+      vi.clearAllMocks()
+      vi.mocked(roomRepository.findById).mockResolvedValue(null)
+
+      await expect(roomService.deleteRoom(roomId, hostId)).rejects.toMatchObject({
+        code: 'ROOM_NOT_FOUND'
+      })
+    })
+
+    it('deleteRoom lanza ROOM_FORBIDDEN si no es el host', async () => {
+      vi.clearAllMocks()
+      const room = createRoomFixture()
+      const otherUserId = '507f1f77bcf86cd799439099'
+
+      vi.mocked(roomRepository.findById).mockResolvedValue(room)
+
+      await expect(roomService.deleteRoom(roomId, otherUserId)).rejects.toMatchObject({
+        code: 'ROOM_FORBIDDEN'
+      })
+    })
+
+    it('deleteRoom valida roomId como ObjectId', async () => {
+      vi.clearAllMocks()
+      await expect(roomService.deleteRoom('123', hostId)).rejects.toMatchObject({
+        code: 'INVALID_ROOM_ID'
+      })
+    })
+
+    it('deleteRoom elimina la sala cuando autenticación es válida', async () => {
+      vi.clearAllMocks()
+      const room = createRoomFixture()
+      vi.mocked(roomRepository.findById).mockResolvedValue(room)
+      vi.mocked(roomRepository.delete).mockResolvedValue(true)
+
+      await expect(roomService.deleteRoom(roomId, hostId)).resolves.toBeUndefined()
+      expect(roomRepository.delete).toHaveBeenCalledWith(roomId)
+    })
+})

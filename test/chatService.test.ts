@@ -137,5 +137,10 @@ describe('chatService', () => {
     await expect(chatService.clearMessages(roomId)).resolves.toBeUndefined()
     expect(chatRepository.clearMessages).toHaveBeenCalledWith(roomId)
   })
+
+  it('ensureChatAccess permite acceso cuando el usuario es miembro', async () => {
+    vi.mocked(roomRepository.findById).mockResolvedValue(roomFixture())
+    await expect(chatService.ensureChatAccess(roomId, userId)).resolves.toBeUndefined()
+  })
 })
 

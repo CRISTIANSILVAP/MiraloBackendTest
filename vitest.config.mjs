@@ -11,8 +11,11 @@ export default defineConfig({
         'src/shared/appError.ts',
         'src/shared/jwtService.ts',
         'src/modules/users/userService.ts',
+        'src/modules/users/userController.ts',
         'src/modules/rooms/roomService.ts',
-        'src/modules/chats/chatService.ts'
+        'src/modules/rooms/roomController.ts',
+        'src/modules/chats/chatService.ts',
+        'src/modules/chats/chatController.ts'
       ],
       thresholds: {
         lines: 80,

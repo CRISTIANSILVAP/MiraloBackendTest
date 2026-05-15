@@ -45,6 +45,12 @@ describe('userService', () => {
     await expect(userService.getUserById(userId)).rejects.toMatchObject({ code: 'USER_NOT_FOUND' })
   })
 
+  it('getUserById retorna usuario cuando existe', async () => {
+    const u = userFixture()
+    vi.mocked(userRepository.findById).mockResolvedValue(u)
+    await expect(userService.getUserById(userId)).resolves.toEqual(u)
+  })
+
   it('createUser retorna usuario existente por email', async () => {
     const existing = userFixture()
     vi.mocked(userRepository.findByEmail).mockResolvedValue(existing)
@@ -119,6 +125,17 @@ describe('userService', () => {
   it('deleteUser lanza USER_NOT_FOUND si no borra', async () => {
     vi.mocked(userRepository.delete).mockResolvedValue(false)
     await expect(userService.deleteUser(userId)).rejects.toMatchObject({ code: 'USER_NOT_FOUND' })
+  })
+
+  it('createUser valida googleId, name y email', async () => {
+    // missing googleId
+    await expect(userService.createUser({ googleId: '', name: 'Alice', email: 'a@b.com' } as any)).rejects.toMatchObject({ code: 'INVALID_GOOGLE_ID' })
+
+    // invalid name
+    await expect(userService.createUser({ googleId: 'g1', name: 'A', email: 'a@b.com' } as any)).rejects.toMatchObject({ code: 'INVALID_NAME' })
+
+    // invalid email
+    await expect(userService.createUser({ googleId: 'g1', name: 'Alice', email: 'not-an-email' } as any)).rejects.toMatchObject({ code: 'INVALID_EMAIL' })
   })
 
 })
