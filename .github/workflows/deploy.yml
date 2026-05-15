@@ -1,9 +1,8 @@
-name: Deploy Node App to Azure Web App
+name: Test + Sonar + Deploy to Azure
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
 
 jobs:
   test-and-sonar:
@@ -31,22 +30,18 @@ jobs:
             -Dsonar.qualitygate.timeout=300
 
   build-and-deploy:
+    needs: test-and-sonar
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
+          cache: npm
 
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build project
-        run: npm run build
+      - run: npm ci
+      - run: npm run build
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
