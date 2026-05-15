@@ -10,12 +10,14 @@ type WatchSocket = {
   on(event: 'close', listener: () => void): void
 }
 
-type WatchEvent = 'play' | 'pause' | 'seek' | 'get_state'
+type WatchEvent = 'play' | 'pause' | 'seek' | 'get_state' | 'pong'
 
 const SOCKET_OPEN_STATE = 1
+const HEARTBEAT_INTERVAL_MS = 30000 // 30s
 const roomWatchSockets = new Map<string, Set<WatchSocket>>()
 const roomWatchSyncSubscriptions = new Map<string, () => Promise<void>>()
 const roomSyncIntervals = new Map<string, NodeJS.Timeout>()
+const roomHeartbeatIntervals = new Map<string, NodeJS.Timeout>()
 // Fallback check interval: default 40s to minimize visible cuts in production
 const WATCH_SYNC_INTERVAL_MS = Math.max(5000, Number(process.env.WATCH_SYNC_INTERVAL_MS ?? 40000))
 // Umbral mínimo para considerar algún ajuste (nudge)
@@ -60,19 +62,20 @@ const broadcastToRoom = (roomId: string, payload: unknown): void => {
 }
 
 const ensureRoomWatchSyncSubscription = async (roomId: string): Promise<void> => {
-  if (roomWatchSyncSubscriptions.has(roomId)) {
-    return
-  }
+   if (roomWatchSyncSubscriptions.has(roomId)) {
+     return
+   }
 
-  const unsubscribe = await subscribeWatchState(roomId, (playback) => {
-    broadcastToRoom(roomId, {
-      event: 'watch_state',
-      data: playback
-    })
-  })
+   const unsubscribe = await subscribeWatchState(roomId, (playback) => {
+     broadcastToRoom(roomId, {
+       event: 'watch_state',
+       data: playback
+     })
+   })
 
-  roomWatchSyncSubscriptions.set(roomId, unsubscribe)
-  await startRoomSyncInterval(roomId)
+   roomWatchSyncSubscriptions.set(roomId, unsubscribe)
+   await startRoomSyncInterval(roomId)
+   startRoomHeartbeat(roomId)
 }
 
 const releaseRoomWatchSyncSubscription = (roomId: string): void => {
@@ -153,13 +156,51 @@ const startRoomSyncInterval = async (roomId: string): Promise<void> => {
 }
 
 const stopRoomSyncInterval = (roomId: string): void => {
-  const interval = roomSyncIntervals.get(roomId)
-  if (!interval) {
-    return
-  }
+   const interval = roomSyncIntervals.get(roomId)
+   if (!interval) {
+     return
+   }
 
-  clearInterval(interval)
-  roomSyncIntervals.delete(roomId)
+   clearInterval(interval)
+   roomSyncIntervals.delete(roomId)
+}
+
+const startRoomHeartbeat = (roomId: string): void => {
+   if (roomHeartbeatIntervals.has(roomId)) {
+     return
+   }
+
+   const heartbeat = setInterval(() => {
+     const sockets = roomWatchSockets.get(roomId)
+     if (!sockets || sockets.size === 0) {
+       clearInterval(heartbeat)
+       roomHeartbeatIntervals.delete(roomId)
+       return
+     }
+
+     const ping = JSON.stringify({ event: 'ping' })
+     for (const socket of sockets) {
+       if (socket.readyState === SOCKET_OPEN_STATE) {
+         try {
+           socket.send(ping)
+         } catch (error) {
+           console.error('[watch-heartbeat] Error enviando ping', roomId, error)
+         }
+       }
+     }
+   }, HEARTBEAT_INTERVAL_MS)
+
+   roomHeartbeatIntervals.set(roomId, heartbeat)
+}
+
+const stopRoomHeartbeat = (roomId: string): void => {
+   const heartbeat = roomHeartbeatIntervals.get(roomId)
+   if (!heartbeat) {
+     return
+   }
+
+   clearInterval(heartbeat)
+   roomHeartbeatIntervals.delete(roomId)
 }
 
 const sendError = (socket: WatchSocket, error: unknown): void => {
@@ -197,55 +238,69 @@ export const handleWatchWebSocket = (socket: WatchSocket, roomId: string, userId
     }
   }
 
-  socket.on('message', async (raw: unknown) => {
-    try {
-      const payload = JSON.parse(parseSocketPayload(raw)) as {
-        event: WatchEvent
-        positionMs?: number
-      }
+   socket.on('message', async (raw: unknown) => {
+     try {
+       const payload = JSON.parse(parseSocketPayload(raw)) as {
+         event: WatchEvent | 'pong'
+         positionMs?: number
+       }
 
-      if (payload.event === 'get_state') {
-        const playback = await roomService.getWatchState(roomId)
-        socket.send(JSON.stringify({
-          event: 'watch_state',
-          data: playback
-        }))
-        return
-      }
+       if (payload.event === 'pong') {
+         // Heartbeat response, connection is alive
+         return
+       }
 
-      if (payload.event === 'play' || payload.event === 'pause' || payload.event === 'seek') {
-        const playback = await roomService.updateWatchState(roomId, userId, {
-          action: payload.event,
-          positionMs: Number(payload.positionMs ?? 0)
-        })
+       if (payload.event === 'get_state') {
+         const playback = await roomService.getWatchState(roomId)
+         socket.send(JSON.stringify({
+           event: 'watch_state',
+           data: playback
+         }))
+         return
+       }
 
-        await publishWatchState(roomId, playback)
-        return
-      }
+       if (payload.event === 'play' || payload.event === 'pause' || payload.event === 'seek') {
+         const playback = await roomService.updateWatchState(roomId, userId, {
+           action: payload.event,
+           positionMs: Number(payload.positionMs ?? 0)
+         })
 
-      socket.send(JSON.stringify({
-        event: 'error',
-        code: 'INVALID_EVENT',
-        message: 'Evento no soportado'
-      }))
-    } catch (error) {
-      sendError(socket, error)
-    }
-  })
+         await publishWatchState(roomId, playback)
+         return
+       }
 
-  socket.on('close', () => {
-    const sockets = roomWatchSockets.get(roomId)
-    if (!sockets) {
-      return
-    }
+       socket.send(JSON.stringify({
+         event: 'error',
+         code: 'INVALID_EVENT',
+         message: 'Evento no soportado'
+       }))
+     } catch (error) {
+       sendError(socket, error)
+     }
+   })
 
-    sockets.delete(socket)
-    if (sockets.size === 0) {
-      roomWatchSockets.delete(roomId)
-      releaseRoomWatchSyncSubscription(roomId)
-      stopRoomSyncInterval(roomId)
-    }
-  })
+   socket.on('close', () => {
+     const sockets = roomWatchSockets.get(roomId)
+     if (!sockets) {
+       return
+     }
+
+     sockets.delete(socket)
+
+     // Notify other users about disconnection
+     if (sockets.size > 0) {
+       broadcastToRoom(roomId, {
+         event: 'user_disconnected',
+         userId
+       })
+     } else {
+       // If no users left, cleanup everything
+       roomWatchSockets.delete(roomId)
+       releaseRoomWatchSyncSubscription(roomId)
+       stopRoomSyncInterval(roomId)
+       stopRoomHeartbeat(roomId)
+     }
+   })
 
   void joinRoom()
 }
