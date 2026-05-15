@@ -16,7 +16,8 @@ const SOCKET_OPEN_STATE = 1
 const roomWatchSockets = new Map<string, Set<WatchSocket>>()
 const roomWatchSyncSubscriptions = new Map<string, () => Promise<void>>()
 const roomSyncIntervals = new Map<string, NodeJS.Timeout>()
-const WATCH_SYNC_INTERVAL_MS = Math.max(250, Number(process.env.WATCH_SYNC_INTERVAL_MS ?? 1000))
+const WATCH_SYNC_INTERVAL_MS = Math.max(1000, Number(process.env.WATCH_SYNC_INTERVAL_MS ?? 5000))
+const SYNC_DRIFT_THRESHOLD_MS = Number(process.env.SYNC_DRIFT_THRESHOLD_MS ?? 1000) // 1 segundo de desfase
 
 const parseSocketPayload = (raw: unknown): string => {
   if (typeof raw === 'string') {
@@ -82,34 +83,56 @@ const releaseRoomWatchSyncSubscription = (roomId: string): void => {
 }
 
 const startRoomSyncInterval = async (roomId: string): Promise<void> => {
-  if (roomSyncIntervals.has(roomId)) {
-    return
-  }
+   if (roomSyncIntervals.has(roomId)) {
+     return
+   }
 
-  const interval = setInterval(async () => {
-    try {
-      const playback = await roomService.getWatchState(roomId)
-      const now = new Date()
-      const timeSinceLastUpdate = now.getTime() - playback.updatedAt.getTime()
+   let lastBroadcastedPlayback = await roomService.getWatchState(roomId)
 
-      // Calcula el tiempo actual con exactitud
-      let currentPositionMs = playback.positionMs
-      if (playback.isPlaying && timeSinceLastUpdate > 0) {
-        currentPositionMs += timeSinceLastUpdate
-      }
+   const interval = setInterval(async () => {
+     try {
+       const currentPlayback = await roomService.getWatchState(roomId)
+       const now = new Date()
 
-      // Publica a través de Redis pub/sub (más rápido y escalable)
-      await publishWatchState(roomId, {
-        ...playback,
-        positionMs: currentPositionMs,
-        updatedAt: now
-      })
-    } catch (error) {
-      console.error('[watch-sync] Error en sincronizacion periodica de sala', roomId, error)
-    }
-  }, WATCH_SYNC_INTERVAL_MS) // Sincroniza de forma configurable (default: 1s)
+       // Calcula la posición actual con exactitud
+       let calculatedPositionMs = currentPlayback.positionMs
+       const timeSinceLastUpdate = now.getTime() - currentPlayback.updatedAt.getTime()
+       if (currentPlayback.isPlaying && timeSinceLastUpdate > 0) {
+         calculatedPositionMs += timeSinceLastUpdate
+       }
 
-  roomSyncIntervals.set(roomId, interval)
+       // Calcula drift actual
+       let lastBroadcastedPositionMs = lastBroadcastedPlayback.positionMs
+       const timeSinceLastBroadcast = now.getTime() - lastBroadcastedPlayback.updatedAt.getTime()
+       if (lastBroadcastedPlayback.isPlaying && timeSinceLastBroadcast > 0) {
+         lastBroadcastedPositionMs += timeSinceLastBroadcast
+       }
+
+       const drift = Math.abs(calculatedPositionMs - lastBroadcastedPositionMs)
+
+       // Solo sincroniza si:
+       // 1. Hay cambio de estado (play/pause/seek)
+       // 2. El desfase supera el threshold
+       // 3. Es la sincronización de fallback (cada 30s aproximadamente)
+       const stateChanged =
+         currentPlayback.isPlaying !== lastBroadcastedPlayback.isPlaying ||
+         currentPlayback.version !== lastBroadcastedPlayback.version
+
+       if (stateChanged || drift > SYNC_DRIFT_THRESHOLD_MS) {
+         const playbackToPublish = {
+           ...currentPlayback,
+           positionMs: calculatedPositionMs,
+           updatedAt: now
+         }
+         await publishWatchState(roomId, playbackToPublish)
+         lastBroadcastedPlayback = playbackToPublish
+       }
+     } catch (error) {
+       console.error('[watch-sync] Error en sincronizacion on-demand de sala', roomId, error)
+     }
+   }, WATCH_SYNC_INTERVAL_MS) // Chequea cada 5s (default) para detectar desincronización
+
+   roomSyncIntervals.set(roomId, interval)
 }
 
 const stopRoomSyncInterval = (roomId: string): void => {
