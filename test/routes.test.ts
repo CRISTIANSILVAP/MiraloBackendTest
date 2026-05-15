@@ -36,6 +36,7 @@ describe('Module Routes', () => {
       await roomRoutes.default(fastify)
 
       expect(fastify.get).toHaveBeenCalledWith('/rooms', expect.any(Function))
+      expect(fastify.get).toHaveBeenCalledWith('/rooms/users/:userId', expect.any(Function))
       expect(fastify.post).toHaveBeenCalledWith('/rooms/create', expect.any(Function))
       expect(fastify.post).toHaveBeenCalledWith(
         '/rooms/:roomId/users/:id/join',
@@ -49,6 +50,8 @@ describe('Module Routes', () => {
         '/rooms/:roomId/users/genres',
         expect.any(Function)
       )
+      expect(fastify.patch).toHaveBeenCalledWith('/rooms/:roomId/:userId', expect.any(Function))
+      expect(fastify.delete).toHaveBeenCalledWith('/rooms/:roomId/:userId', expect.any(Function))
       expect(fastify.get).toHaveBeenCalledWith(
         '/rooms/:roomId/watch-state',
         expect.any(Function)

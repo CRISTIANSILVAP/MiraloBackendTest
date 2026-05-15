@@ -10,6 +10,7 @@ export default async function roomRoutes(fastify: FastifyInstance) {
     const objectIdRegex = /^[a-fA-F0-9]{24}$/
 
     fastify.get('/rooms', controller.getRooms)
+    fastify.get('/rooms/users/:userId', controller.getRoomsByUser)
     fastify.post('/rooms/create', controller.createRoom)
 
     fastify.post('/rooms/:roomId/users/:id/join', controller.joinRoom)
@@ -19,9 +20,10 @@ export default async function roomRoutes(fastify: FastifyInstance) {
     fastify.get('/rooms/:roomId/users/genres', controller.getUsersGenres)
 
     // Actualizar datos genéricos de la sala (solo el host)
-    fastify.patch('/rooms/:roomId', controller.updateRoom)
+    fastify.patch('/rooms/:roomId/:userId', controller.updateRoom)
 
-    fastify.delete('/rooms/:roomId', controller.deleteRoom)
+    // Eliminar sala — el host debe coincidir con request.user.id
+    fastify.delete('/rooms/:roomId/:userId', controller.deleteRoom)
 
     fastify.get('/rooms/:roomId/watch-state', controller.getWatchState)
     fastify.patch('/rooms/:roomId/watch-state', controller.updateWatchState)

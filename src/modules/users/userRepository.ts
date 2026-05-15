@@ -67,6 +67,12 @@ const userRepository = {
     return document ? toUser(document) : null
   },
 
+  async findByGoogleId(googleId: string): Promise<User | null> {
+    const usersCollection = await resolveCollection()
+    const document = await usersCollection.findOne({ googleId })
+    return document ? toUser(document) : null
+  },
+
   async create(input: CreateUserInput): Promise<User> {
     const usersCollection = await resolveCollection()
     const now = new Date()

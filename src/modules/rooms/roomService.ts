@@ -62,6 +62,11 @@ const projectPlayback = (playback: PlaybackState): PlaybackState => {
 const roomService = {
     getRooms: (): Promise<Room[]> => roomRepository.findAll(),
 
+    getRoomsByUser: async (userId: string): Promise<Room[]> => {
+        validateObjectId(userId, 'INVALID_USER_ID')
+        return roomRepository.findByUserId(userId)
+    },
+
     getRoomById: async (id: string): Promise<Room> => {
         const room = await roomRepository.findById(id)
         if (!room) throw new AppError(404, 'ROOM_NOT_FOUND', 'Sala no encontrada')

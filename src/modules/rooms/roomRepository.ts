@@ -62,6 +62,20 @@ const roomRepository = {
         return documents.map((doc) => toRoom(doc))
     },
 
+    async findByUserId(userId: string): Promise<Room[]> {
+        if (!ObjectId.isValid(userId)) {
+            return []
+        }
+
+        const roomsCollection = await resolveCollection()
+        const documents = await roomsCollection
+            .find({ userIds: userId })
+            .sort({ createdAt: -1 })
+            .toArray()
+
+        return documents.map((doc) => toRoom(doc))
+    },
+
     async findById(id: string): Promise<Room | null> {
         if (!ObjectId.isValid(id)) {
             return null

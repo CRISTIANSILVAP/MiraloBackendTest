@@ -130,6 +130,13 @@ const userService = {
       throw new AppError(404, 'USER_NOT_FOUND', 'Usuario no encontrado')
     }
   }
+
+  ,
+
+  async getUserByGoogleId(googleId: string): Promise<User | null> {
+    validateGoogleId(googleId)
+    return userRepository.findByGoogleId(googleId)
+  }
 }
 
 export default userService

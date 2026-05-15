@@ -47,6 +47,7 @@ describe('RoomController', () => {
   beforeEach(() => {
     mockRoomService = {
       getRooms: vi.fn(),
+      getRoomsByUser: vi.fn(),
       getRoomById: vi.fn(),
       createRoom: vi.fn(),
       joinRoomForUser: vi.fn(),
@@ -83,6 +84,24 @@ describe('RoomController', () => {
       await controller.getRooms(request, reply)
 
       expect(reply.code).toHaveBeenCalledWith(500)
+    })
+  })
+
+  describe('getRoomsByUser', () => {
+    it('returns rooms for a user', async () => {
+      const request = mockRequest({
+        params: { userId: '507f1f77bcf86cd799439011' }
+      })
+      const reply = mockReply()
+      const rooms = [roomFixture]
+
+      mockRoomService.getRoomsByUser.mockResolvedValue(rooms)
+
+      await controller.getRoomsByUser(request, reply)
+
+      expect(mockRoomService.getRoomsByUser).toHaveBeenCalledWith('507f1f77bcf86cd799439011')
+      expect(reply.code).toHaveBeenCalledWith(200)
+      expect(reply.send).toHaveBeenCalledWith(rooms)
     })
   })
 
@@ -383,21 +402,20 @@ describe('RoomController', () => {
   describe('updateRoom', () => {
     it('updates room successfully', async () => {
       const request = mockRequest({
-        params: { roomId: '507f1f77bcf86cd799439012' },
+        params: {
+          roomId: '507f1f77bcf86cd799439012',
+          userId: '507f1f77bcf86cd799439011'
+        },
         body: {
           name: 'Updated Room',
           maxUsers: 10
-        },
-        user: { id: '507f1f77bcf86cd799439011' }
+        }
       })
       const reply = mockReply()
       const updatedRoom = { ...roomFixture, name: 'Updated Room', maxUsers: 10 }
 
       mockRoomService.getRoomById.mockResolvedValue(roomFixture)
       mockRoomService.updateRoom.mockResolvedValue(updatedRoom)
-
-      // Mock the user in request
-      ;(request as any).user = { id: '507f1f77bcf86cd799439011' }
 
       await controller.updateRoom(request, reply)
 
@@ -416,28 +434,29 @@ describe('RoomController', () => {
 
     it('returns 401 if user is not authenticated', async () => {
       const request = mockRequest({
-        params: { roomId: '507f1f77bcf86cd799439012' },
+        params: { roomId: '507f1f77bcf86cd799439012', userId: '' },
         body: { name: 'Updated Room' }
       })
       const reply = mockReply()
 
       await controller.updateRoom(request, reply)
 
-      expect(reply.code).toHaveBeenCalledWith(401)
+      expect(reply.code).toHaveBeenCalledWith(400)
       expect(reply.send).toHaveBeenCalledWith({
-        code: 'UNAUTHORIZED',
-        message: 'Debe estar autenticado'
+        code: 'INVALID_USER_ID',
+        message: 'El userId es obligatorio'
       })
     })
 
     it('handles service errors', async () => {
       const request = mockRequest({
-        params: { roomId: '507f1f77bcf86cd799439012' },
-        body: { isPrivate: true },
-        user: { id: '507f1f77bcf86cd799439011' }
+        params: {
+          roomId: '507f1f77bcf86cd799439012',
+          userId: '507f1f77bcf86cd799439011'
+        },
+        body: { isPrivate: true }
       })
       const reply = mockReply()
-      ;(request as any).user = { id: '507f1f77bcf86cd799439011' }
 
       mockRoomService.getRoomById.mockResolvedValue(roomFixture)
       mockRoomService.updateRoom.mockRejectedValue(
@@ -455,9 +474,11 @@ describe('RoomController', () => {
 
     it('returns 403 if authenticated user is not host', async () => {
       const request = mockRequest({
-        params: { roomId: '507f1f77bcf86cd799439012' },
-        body: { name: 'Updated Room' },
-        user: { id: '507f1f77bcf86cd799439099' }
+        params: {
+          roomId: '507f1f77bcf86cd799439012',
+          userId: '507f1f77bcf86cd799439099'
+        },
+        body: { name: 'Updated Room' }
       })
       const reply = mockReply()
 
@@ -477,11 +498,12 @@ describe('RoomController', () => {
   describe('deleteRoom', () => {
     it('deletes room successfully', async () => {
       const request = mockRequest({
-        params: { roomId: '507f1f77bcf86cd799439012' },
-        user: { id: '507f1f77bcf86cd799439011' }
+        params: {
+          roomId: '507f1f77bcf86cd799439012',
+          userId: '507f1f77bcf86cd799439011'
+        }
       })
       const reply = mockReply()
-      ;(request as any).user = { id: '507f1f77bcf86cd799439011' }
 
       mockRoomService.getRoomById.mockResolvedValue(roomFixture)
       mockRoomService.deleteRoom.mockResolvedValue(undefined)
@@ -499,26 +521,27 @@ describe('RoomController', () => {
 
     it('returns 401 if user is not authenticated', async () => {
       const request = mockRequest({
-        params: { roomId: '507f1f77bcf86cd799439012' }
+        params: { roomId: '507f1f77bcf86cd799439012', userId: '' }
       })
       const reply = mockReply()
 
       await controller.deleteRoom(request, reply)
 
-      expect(reply.code).toHaveBeenCalledWith(401)
+      expect(reply.code).toHaveBeenCalledWith(400)
       expect(reply.send).toHaveBeenCalledWith({
-        code: 'UNAUTHORIZED',
-        message: 'Debe estar autenticado'
+        code: 'INVALID_USER_ID',
+        message: 'El userId es obligatorio'
       })
     })
 
     it('handles service errors (ROOM_FORBIDDEN)', async () => {
       const request = mockRequest({
-        params: { roomId: '507f1f77bcf86cd799439012' },
-        user: { id: '507f1f77bcf86cd799439011' }
+        params: {
+          roomId: '507f1f77bcf86cd799439012',
+          userId: '507f1f77bcf86cd799439011'
+        }
       })
       const reply = mockReply()
-      ;(request as any).user = { id: '507f1f77bcf86cd799439011' }
 
       mockRoomService.getRoomById.mockResolvedValue(roomFixture)
       mockRoomService.deleteRoom.mockRejectedValue(
@@ -536,11 +559,12 @@ describe('RoomController', () => {
 
     it('handles service errors (ROOM_NOT_FOUND)', async () => {
       const request = mockRequest({
-        params: { roomId: '507f1f77bcf86cd799439012' },
-        user: { id: '507f1f77bcf86cd799439011' }
+        params: {
+          roomId: '507f1f77bcf86cd799439012',
+          userId: '507f1f77bcf86cd799439011'
+        }
       })
       const reply = mockReply()
-      ;(request as any).user = { id: '507f1f77bcf86cd799439011' }
 
       mockRoomService.getRoomById.mockResolvedValue(roomFixture)
       mockRoomService.deleteRoom.mockRejectedValue(
@@ -558,8 +582,10 @@ describe('RoomController', () => {
 
     it('returns 403 if authenticated user is not host', async () => {
       const request = mockRequest({
-        params: { roomId: '507f1f77bcf86cd799439012' },
-        user: { id: '507f1f77bcf86cd799439099' }
+        params: {
+          roomId: '507f1f77bcf86cd799439012',
+          userId: '507f1f77bcf86cd799439099'
+        }
       })
       const reply = mockReply()
 

@@ -16,6 +16,7 @@ const SOCKET_OPEN_STATE = 1
 const roomWatchSockets = new Map<string, Set<WatchSocket>>()
 const roomWatchSyncSubscriptions = new Map<string, () => Promise<void>>()
 const roomSyncIntervals = new Map<string, NodeJS.Timeout>()
+const WATCH_SYNC_INTERVAL_MS = Math.max(250, Number(process.env.WATCH_SYNC_INTERVAL_MS ?? 1000))
 
 const parseSocketPayload = (raw: unknown): string => {
   if (typeof raw === 'string') {
@@ -106,7 +107,7 @@ const startRoomSyncInterval = async (roomId: string): Promise<void> => {
     } catch (error) {
       console.error('[watch-sync] Error en sincronizacion periodica de sala', roomId, error)
     }
-  }, 2000) // Sincroniza cada 2 segundos
+  }, WATCH_SYNC_INTERVAL_MS) // Sincroniza de forma configurable (default: 1s)
 
   roomSyncIntervals.set(roomId, interval)
 }
