@@ -7,6 +7,7 @@ vi.mock('../src/modules/rooms/roomRepository.js', () => ({
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
+    addUserAtomically: vi.fn(),
     addUser: vi.fn(),
     removeUser: vi.fn()
   }
@@ -218,7 +219,7 @@ describe('roomService', () => {
 
     vi.mocked(userRepository.findById).mockResolvedValue(user)
     vi.mocked(roomRepository.findById).mockResolvedValue(room)
-    vi.mocked(roomRepository.addUser).mockResolvedValue(room)
+    vi.mocked(roomRepository.addUserAtomically).mockResolvedValue(room)
     vi.mocked(userRepository.addFavoriteGenre).mockResolvedValue({ ...user, favoriteGenres: ['other'] })
     vi.mocked(chatService.getOrCreateChat).mockResolvedValue({ id: '507f1f77bcf86cd799439013' } as never)
 
@@ -258,12 +259,63 @@ describe('roomService', () => {
     const room = createRoomFixture()
     const updated = { ...room, userIds: [hostId, '507f1f77bcf86cd799439014'] }
     vi.mocked(roomRepository.findById).mockResolvedValue(room)
-    vi.mocked(roomRepository.addUser).mockResolvedValue(updated)
+    vi.mocked(roomRepository.addUserAtomically).mockResolvedValue(updated)
 
     await expect(roomService.addUser(roomId, '507f1f77bcf86cd799439014')).resolves.toEqual(updated)
 
     vi.mocked(roomRepository.removeUser).mockResolvedValue(room)
     await expect(roomService.removeUser(roomId, '507f1f77bcf86cd799439014')).resolves.toEqual(room)
+  })
+
+  it('addUser cambia waiting -> active cuando hay 2 usuarios', async () => {
+    const room = createRoomFixture()
+    const withTwoUsers = { ...room, userIds: [hostId, '507f1f77bcf86cd799439014'] }
+    const activeRoom = { ...withTwoUsers, state: 'active' as const }
+
+    vi.mocked(roomRepository.findById).mockResolvedValue(room)
+    vi.mocked(roomRepository.addUserAtomically).mockResolvedValue(withTwoUsers)
+    vi.mocked(roomRepository.update).mockResolvedValue(activeRoom)
+
+    await expect(roomService.addUser(roomId, '507f1f77bcf86cd799439014')).resolves.toEqual(activeRoom)
+    expect(roomRepository.update).toHaveBeenCalledWith(roomId, { state: 'active' })
+  })
+
+  it('removeUser cambia active -> waiting cuando queda 1 usuario', async () => {
+    const room = {
+      ...createRoomFixture(),
+      state: 'active' as const,
+      userIds: [hostId, '507f1f77bcf86cd799439014']
+    }
+    const afterLeave = { ...room, userIds: [hostId] }
+    const waitingRoom = { ...afterLeave, state: 'waiting' as const }
+
+    vi.mocked(roomRepository.findById).mockResolvedValue(room)
+    vi.mocked(roomRepository.removeUser).mockResolvedValue(afterLeave)
+    vi.mocked(roomRepository.update).mockResolvedValue(waitingRoom)
+
+    await expect(roomService.removeUser(roomId, '507f1f77bcf86cd799439014')).resolves.toEqual(waitingRoom)
+    expect(roomRepository.update).toHaveBeenCalledWith(roomId, { state: 'waiting' })
+  })
+
+  it('cuando queda 0 usuarios se marca finished y se borra la sala', async () => {
+    const room = {
+      ...createRoomFixture(),
+      state: 'waiting' as const,
+      userIds: [hostId]
+    }
+    const afterLeave = { ...room, userIds: [] }
+    const finishedRoom = { ...afterLeave, state: 'finished' as const }
+
+    vi.mocked(roomRepository.findById).mockResolvedValue(room)
+    vi.mocked(roomRepository.removeUser).mockResolvedValue(afterLeave)
+    vi.mocked(roomRepository.update).mockResolvedValue(finishedRoom)
+    vi.mocked(roomRepository.delete).mockResolvedValue(true)
+
+    const res = await roomService.removeUser(roomId, hostId)
+
+    expect(res.state).toBe('finished')
+    // delete se invoca en background; assert que fue llamado
+    expect(roomRepository.delete).toHaveBeenCalledWith(roomId)
   })
 
   it('ensureUserInRoom valida membresia', async () => {
@@ -331,7 +383,7 @@ describe('roomService', () => {
   })
 
   it('updateWatchState valida posicion y actualiza reproduccion', async () => {
-    const room = createRoomFixture()
+    const room = { ...createRoomFixture(), state: 'active' as const }
     vi.mocked(roomRepository.findById).mockResolvedValue(room)
 
     await expect(roomService.updateWatchState(roomId, hostId, {
@@ -369,6 +421,7 @@ describe('roomService', () => {
   it('updateWatchState en seek conserva estado isPlaying previo', async () => {
     const room = {
       ...createRoomFixture(),
+      state: 'active' as const,
       playback: {
         ...createRoomFixture().playback,
         isPlaying: true,
@@ -397,7 +450,7 @@ describe('roomService', () => {
   })
 
   it('updateWatchState lanza error si update falla', async () => {
-    vi.mocked(roomRepository.findById).mockResolvedValue(createRoomFixture())
+    vi.mocked(roomRepository.findById).mockResolvedValue({ ...createRoomFixture(), state: 'active' as const })
     vi.mocked(roomRepository.update).mockResolvedValue(null)
 
     await expect(roomService.updateWatchState(roomId, hostId, {
@@ -457,7 +510,7 @@ describe('roomService', () => {
 
     vi.mocked(userRepository.findById).mockResolvedValue(user)
     vi.mocked(roomRepository.findById).mockResolvedValue(room)
-    vi.mocked(roomRepository.addUser).mockResolvedValue(room)
+    vi.mocked(roomRepository.addUserAtomically).mockResolvedValue(room)
     vi.mocked(userRepository.addFavoriteGenre).mockResolvedValue(null)
     vi.mocked(chatService.getOrCreateChat).mockResolvedValue({ id: '507f1f77bcf86cd799439013' } as never)
 
@@ -473,8 +526,8 @@ describe('roomService', () => {
     const room = createRoomFixture()
     vi.mocked(roomRepository.findById).mockResolvedValue(room)
 
-    vi.mocked(roomRepository.addUser).mockResolvedValue(null)
-    await expect(roomService.addUser(roomId, hostId)).rejects.toMatchObject({ code: 'ROOM_NOT_FOUND' })
+    vi.mocked(roomRepository.addUserAtomically).mockResolvedValue(null)
+    await expect(roomService.addUser(roomId, hostId)).rejects.toMatchObject({ code: 'ROOM_JOIN_CONFLICT' })
 
     vi.mocked(roomRepository.removeUser).mockResolvedValue(null)
     await expect(roomService.removeUser(roomId, hostId)).rejects.toMatchObject({ code: 'ROOM_NOT_FOUND' })
@@ -485,6 +538,23 @@ describe('roomService', () => {
     vi.mocked(roomRepository.findById).mockResolvedValue(room)
 
     await expect(roomService.getWatchState(roomId)).resolves.toEqual(room.playback)
+  })
+
+  it('getWatchState proyecta positionMs cuando isPlaying=true', async () => {
+    const room = {
+      ...createRoomFixture(),
+      playback: {
+        ...createRoomFixture().playback,
+        isPlaying: true,
+        positionMs: 1000,
+        updatedAt: new Date(Date.now() - 2000)
+      }
+    }
+
+    vi.mocked(roomRepository.findById).mockResolvedValue(room)
+    const playback = await roomService.getWatchState(roomId)
+
+    expect(playback.positionMs).toBeGreaterThanOrEqual(3000)
   })
 
   it('updateRoom lanza ROOM_NOT_FOUND si la sala no existe', async () => {

@@ -24,7 +24,7 @@ export type CreateRoomInput = Pick<Room,
 >
 
 export type UpdateRoomInput = Partial<Pick<Room,
-    'name' | 'isPrivate' | 'accessCode' | 'maxUsers' | 'userIds' | 'chatId' | 'state' | 'contentUrl' | 'playback'
+    'name' | 'isPrivate' | 'accessCode' | 'maxUsers' | 'hostId' | 'userIds' | 'chatId' | 'state' | 'contentUrl' | 'playback'
 >>
 
 let collection: Collection<RoomDocument> | null = null
@@ -138,6 +138,31 @@ const roomRepository = {
         const roomsCollection = await resolveCollection()
         const document = await roomsCollection.findOneAndUpdate(
             { _id: new ObjectId(roomId) },
+            {
+                $addToSet: { userIds: userId },
+                $set: { updatedAt: new Date() }
+            },
+            { returnDocument: 'after' }
+        )
+
+        return document ? toRoom(document) : null
+    },
+
+    async addUserAtomically(roomId: string, userId: string): Promise<Room | null> {
+        if (!ObjectId.isValid(roomId)) {
+            return null
+        }
+
+        const roomsCollection = await resolveCollection()
+        const document = await roomsCollection.findOneAndUpdate(
+            {
+                _id: new ObjectId(roomId),
+                state: { $ne: 'finished' },
+                $or: [
+                    { userIds: userId },
+                    { $expr: { $lt: [{ $size: '$userIds' }, '$maxUsers'] } }
+                ]
+            },
             {
                 $addToSet: { userIds: userId },
                 $set: { updatedAt: new Date() }
