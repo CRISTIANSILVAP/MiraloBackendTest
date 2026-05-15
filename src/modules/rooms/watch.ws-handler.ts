@@ -19,13 +19,8 @@ const roomWatchSyncSubscriptions = new Map<string, () => Promise<void>>()
 const roomSyncIntervals = new Map<string, NodeJS.Timeout>()
 const roomHeartbeatIntervals = new Map<string, NodeJS.Timeout>()
 
-// Fallback check interval: only as a safety net (no hard syncs during this)
+// Fallback check interval: only detects state changes (play/pause/seek), never modifies position
 const WATCH_SYNC_INTERVAL_MS = Math.max(30000, Number(process.env.WATCH_SYNC_INTERVAL_MS ?? 60000)) // 60s default
-
-// Drift thresholds for smooth synchronization
-const SYNC_DRIFT_THRESHOLD_MS = Number(process.env.SYNC_DRIFT_THRESHOLD_MS ?? 3000) // 3s: start smooth adjustment
-const BIG_DRIFT_MS = Number(process.env.BIG_DRIFT_MS ?? 15000) // 15s: something is really wrong, send rate adjustment
-const CRITICAL_DRIFT_MS = Number(process.env.CRITICAL_DRIFT_MS ?? 20000) // 20s: network issue, do hard seek
 
 
 const parseSocketPayload = (raw: unknown): string => {
@@ -102,65 +97,18 @@ const startRoomSyncInterval = async (roomId: string): Promise<void> => {
    const interval = setInterval(async () => {
      try {
        const currentPlayback = await roomService.getWatchState(roomId)
-       const now = new Date()
 
-       // Calculate actual position considering elapsed time
-       let calculatedPositionMs = currentPlayback.positionMs
-       const timeSinceLastUpdate = now.getTime() - currentPlayback.updatedAt.getTime()
-       if (currentPlayback.isPlaying && timeSinceLastUpdate > 0) {
-         calculatedPositionMs += timeSinceLastUpdate
+       // === FALLBACK: Only sync on STATE CHANGES (play/pause/seek by other users) ===
+       // Never send partial updates - those cause pause issues
+       const stateChanged =
+         currentPlayback.isPlaying !== lastBroadcastedPlayback.isPlaying ||
+         currentPlayback.version !== lastBroadcastedPlayback.version
+
+       if (stateChanged) {
+         // State change detected (someone played/paused/seeked) - broadcast complete state
+         await publishWatchState(roomId, currentPlayback)
+         lastBroadcastedPlayback = currentPlayback
        }
-
-       // Calculate drift vs last broadcast
-       let lastBroadcastedPositionMs = lastBroadcastedPlayback.positionMs
-       const timeSinceLastBroadcast = now.getTime() - lastBroadcastedPlayback.updatedAt.getTime()
-       if (lastBroadcastedPlayback.isPlaying && timeSinceLastBroadcast > 0) {
-         lastBroadcastedPositionMs += timeSinceLastBroadcast
-       }
-
-       const drift = Math.abs(calculatedPositionMs - lastBroadcastedPositionMs)
-       const driftDirection = calculatedPositionMs - lastBroadcastedPositionMs
-
-       // === FALLBACK SAFETY NET (no hard syncs/seeks) ===
-       // Only send gentle playback rate adjustments on fallback, never hard seeks
-       if (drift > CRITICAL_DRIFT_MS && currentPlayback.isPlaying) {
-         // Extreme drift: send playback rate adjustment instead of seek
-         // Client should use this to smooth-sync over ~5 seconds
-         const rateFactor = driftDirection > 0 ? 1.05 : 0.95 // ±5% speed adjustment
-         try {
-           await publishWatchState(roomId, {
-             playbackRate: rateFactor,
-             positionMs: calculatedPositionMs,
-             updatedAt: now
-           } as any)
-         } catch (err) {
-           console.error('[watch-sync] Error publicando rate adjustment', roomId, err)
-         }
-       } else if (drift > BIG_DRIFT_MS && currentPlayback.isPlaying) {
-         // Large drift: gentle rate adjustment to converge smoothly
-         const rateFactor = driftDirection > 0 ? 1.02 : 0.98 // ±2% speed
-         try {
-           await publishWatchState(roomId, {
-             playbackRate: rateFactor,
-             positionMs: calculatedPositionMs,
-             updatedAt: now
-           } as any)
-         } catch (err) {
-           console.error('[watch-sync] Error publicando rate adjustment', roomId, err)
-         }
-       } else if (drift > SYNC_DRIFT_THRESHOLD_MS && currentPlayback.isPlaying) {
-         // Small drift: just send position update, client can absorb it gradually
-         try {
-           await publishWatchState(roomId, {
-             positionMs: calculatedPositionMs,
-             updatedAt: now
-           } as any)
-         } catch (err) {
-           console.error('[watch-sync] Error publicando position update', roomId, err)
-         }
-       }
-
-       lastBroadcastedPlayback = currentPlayback
      } catch (error) {
        console.error('[watch-sync] Error en fallback check de sala', roomId, error)
      }
