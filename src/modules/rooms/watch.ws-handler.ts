@@ -16,14 +16,12 @@ const SOCKET_OPEN_STATE = 1
 const roomWatchSockets = new Map<string, Set<WatchSocket>>()
 const roomWatchSyncSubscriptions = new Map<string, () => Promise<void>>()
 const roomSyncIntervals = new Map<string, NodeJS.Timeout>()
-// Fallback check interval: default 30s to avoid frequent forced syncs that produce visible jumps
-const WATCH_SYNC_INTERVAL_MS = Math.max(5000, Number(process.env.WATCH_SYNC_INTERVAL_MS ?? 30000))
+// Fallback check interval: default 40s to minimize visible cuts in production
+const WATCH_SYNC_INTERVAL_MS = Math.max(5000, Number(process.env.WATCH_SYNC_INTERVAL_MS ?? 40000))
 // Umbral mínimo para considerar algún ajuste (nudge)
-const SYNC_DRIFT_THRESHOLD_MS = Number(process.env.SYNC_DRIFT_THRESHOLD_MS ?? 1000) // 1s
-// Si el desfase está entre threshold y este valor, hacemos un "nudge" suave
-const NUDGE_MAX_MS = Number(process.env.NUDGE_MAX_MS ?? 2000) // 2s
+const SYNC_DRIFT_THRESHOLD_MS = Number(process.env.SYNC_DRIFT_THRESHOLD_MS ?? 2000) // 2s
 // Solo forzamos un full sync/seek si el desfase supera este valor (o hay cambio de estado)
-const BIG_DRIFT_MS = Number(process.env.BIG_DRIFT_MS ?? 5000) // 5s
+const BIG_DRIFT_MS = Number(process.env.BIG_DRIFT_MS ?? 8000) // 8s
 
 
 const parseSocketPayload = (raw: unknown): string => {
@@ -95,6 +93,7 @@ const startRoomSyncInterval = async (roomId: string): Promise<void> => {
    }
 
    let lastBroadcastedPlayback = await roomService.getWatchState(roomId)
+   let lastSyncTime = Date.now()
 
    const interval = setInterval(async () => {
      try {
@@ -117,19 +116,13 @@ const startRoomSyncInterval = async (roomId: string): Promise<void> => {
 
        const drift = Math.abs(calculatedPositionMs - lastBroadcastedPositionMs)
 
-       // Solo sincroniza si:
-       // 1. Hay cambio de estado (play/pause/seek)
-       // 2. El desfase supera el threshold
-       // 3. Es la sincronización de fallback (cada 30s aproximadamente)
+       // Only sync if state actually changed or drift is significant
        const stateChanged =
          currentPlayback.isPlaying !== lastBroadcastedPlayback.isPlaying ||
          currentPlayback.version !== lastBroadcastedPlayback.version
 
-        // Decide acciones:
-        // - Si hubo cambio de estado (play/pause/seek) o drift > BIG_DRIFT_MS -> full publish
-        // - Si drift está entre SYNC_DRIFT_THRESHOLD_MS y BIG_DRIFT_MS -> nudge
-        // - Si drift <= SYNC_DRIFT_THRESHOLD_MS -> nada
         if (stateChanged || drift > BIG_DRIFT_MS) {
+          // Full sync for state changes or significant drift
           const playbackToPublish = {
             ...currentPlayback,
             positionMs: calculatedPositionMs,
@@ -137,8 +130,9 @@ const startRoomSyncInterval = async (roomId: string): Promise<void> => {
           }
           await publishWatchState(roomId, playbackToPublish)
           lastBroadcastedPlayback = playbackToPublish
+          lastSyncTime = Date.now()
         } else if (drift > SYNC_DRIFT_THRESHOLD_MS && drift <= BIG_DRIFT_MS) {
-          // Small/medium drift: send a nudge so clients can smooth without big jumps
+          // Small drift: send subtle nudge to smooth without jumping
           const adjustMs = Math.round(calculatedPositionMs - lastBroadcastedPositionMs)
           try {
             await publishWatchState(roomId, {
@@ -149,12 +143,11 @@ const startRoomSyncInterval = async (roomId: string): Promise<void> => {
           } catch (err) {
             console.error('[watch-sync] Error publicando nudge', roomId, err)
           }
-          // do not update lastBroadcastedPlayback to keep reference for future comparisons
         }
      } catch (error) {
        console.error('[watch-sync] Error en sincronizacion on-demand de sala', roomId, error)
      }
-   }, WATCH_SYNC_INTERVAL_MS) // Chequea cada 5s (default) para detectar desincronización
+   }, WATCH_SYNC_INTERVAL_MS) // Fallback check interval
 
    roomSyncIntervals.set(roomId, interval)
 }
