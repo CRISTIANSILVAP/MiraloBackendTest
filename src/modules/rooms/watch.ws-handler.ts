@@ -18,12 +18,14 @@ const roomWatchSockets = new Map<string, Set<WatchSocket>>()
 const roomWatchSyncSubscriptions = new Map<string, () => Promise<void>>()
 const roomSyncIntervals = new Map<string, NodeJS.Timeout>()
 const roomHeartbeatIntervals = new Map<string, NodeJS.Timeout>()
-// Fallback check interval: default 40s to minimize visible cuts in production
-const WATCH_SYNC_INTERVAL_MS = Math.max(5000, Number(process.env.WATCH_SYNC_INTERVAL_MS ?? 40000))
-// Umbral mínimo para considerar algún ajuste (nudge)
-const SYNC_DRIFT_THRESHOLD_MS = Number(process.env.SYNC_DRIFT_THRESHOLD_MS ?? 2000) // 2s
-// Solo forzamos un full sync/seek si el desfase supera este valor (o hay cambio de estado)
-const BIG_DRIFT_MS = Number(process.env.BIG_DRIFT_MS ?? 8000) // 8s
+
+// Fallback check interval: only as a safety net (no hard syncs during this)
+const WATCH_SYNC_INTERVAL_MS = Math.max(30000, Number(process.env.WATCH_SYNC_INTERVAL_MS ?? 60000)) // 60s default
+
+// Drift thresholds for smooth synchronization
+const SYNC_DRIFT_THRESHOLD_MS = Number(process.env.SYNC_DRIFT_THRESHOLD_MS ?? 3000) // 3s: start smooth adjustment
+const BIG_DRIFT_MS = Number(process.env.BIG_DRIFT_MS ?? 15000) // 15s: something is really wrong, send rate adjustment
+const CRITICAL_DRIFT_MS = Number(process.env.CRITICAL_DRIFT_MS ?? 20000) // 20s: network issue, do hard seek
 
 
 const parseSocketPayload = (raw: unknown): string => {
@@ -96,21 +98,20 @@ const startRoomSyncInterval = async (roomId: string): Promise<void> => {
    }
 
    let lastBroadcastedPlayback = await roomService.getWatchState(roomId)
-   let lastSyncTime = Date.now()
 
    const interval = setInterval(async () => {
      try {
        const currentPlayback = await roomService.getWatchState(roomId)
        const now = new Date()
 
-       // Calcula la posición actual con exactitud
+       // Calculate actual position considering elapsed time
        let calculatedPositionMs = currentPlayback.positionMs
        const timeSinceLastUpdate = now.getTime() - currentPlayback.updatedAt.getTime()
        if (currentPlayback.isPlaying && timeSinceLastUpdate > 0) {
          calculatedPositionMs += timeSinceLastUpdate
        }
 
-       // Calcula drift actual
+       // Calculate drift vs last broadcast
        let lastBroadcastedPositionMs = lastBroadcastedPlayback.positionMs
        const timeSinceLastBroadcast = now.getTime() - lastBroadcastedPlayback.updatedAt.getTime()
        if (lastBroadcastedPlayback.isPlaying && timeSinceLastBroadcast > 0) {
@@ -118,39 +119,52 @@ const startRoomSyncInterval = async (roomId: string): Promise<void> => {
        }
 
        const drift = Math.abs(calculatedPositionMs - lastBroadcastedPositionMs)
+       const driftDirection = calculatedPositionMs - lastBroadcastedPositionMs
 
-       // Only sync if state actually changed or drift is significant
-       const stateChanged =
-         currentPlayback.isPlaying !== lastBroadcastedPlayback.isPlaying ||
-         currentPlayback.version !== lastBroadcastedPlayback.version
+       // === FALLBACK SAFETY NET (no hard syncs/seeks) ===
+       // Only send gentle playback rate adjustments on fallback, never hard seeks
+       if (drift > CRITICAL_DRIFT_MS && currentPlayback.isPlaying) {
+         // Extreme drift: send playback rate adjustment instead of seek
+         // Client should use this to smooth-sync over ~5 seconds
+         const rateFactor = driftDirection > 0 ? 1.05 : 0.95 // ±5% speed adjustment
+         try {
+           await publishWatchState(roomId, {
+             playbackRate: rateFactor,
+             positionMs: calculatedPositionMs,
+             updatedAt: now
+           } as any)
+         } catch (err) {
+           console.error('[watch-sync] Error publicando rate adjustment', roomId, err)
+         }
+       } else if (drift > BIG_DRIFT_MS && currentPlayback.isPlaying) {
+         // Large drift: gentle rate adjustment to converge smoothly
+         const rateFactor = driftDirection > 0 ? 1.02 : 0.98 // ±2% speed
+         try {
+           await publishWatchState(roomId, {
+             playbackRate: rateFactor,
+             positionMs: calculatedPositionMs,
+             updatedAt: now
+           } as any)
+         } catch (err) {
+           console.error('[watch-sync] Error publicando rate adjustment', roomId, err)
+         }
+       } else if (drift > SYNC_DRIFT_THRESHOLD_MS && currentPlayback.isPlaying) {
+         // Small drift: just send position update, client can absorb it gradually
+         try {
+           await publishWatchState(roomId, {
+             positionMs: calculatedPositionMs,
+             updatedAt: now
+           } as any)
+         } catch (err) {
+           console.error('[watch-sync] Error publicando position update', roomId, err)
+         }
+       }
 
-        if (stateChanged || drift > BIG_DRIFT_MS) {
-          // Full sync for state changes or significant drift
-          const playbackToPublish = {
-            ...currentPlayback,
-            positionMs: calculatedPositionMs,
-            updatedAt: now
-          }
-          await publishWatchState(roomId, playbackToPublish)
-          lastBroadcastedPlayback = playbackToPublish
-          lastSyncTime = Date.now()
-        } else if (drift > SYNC_DRIFT_THRESHOLD_MS && drift <= BIG_DRIFT_MS) {
-          // Small drift: send subtle nudge to smooth without jumping
-          const adjustMs = Math.round(calculatedPositionMs - lastBroadcastedPositionMs)
-          try {
-            await publishWatchState(roomId, {
-              adjustMs,
-              positionMs: calculatedPositionMs,
-              updatedAt: now
-            } as any)
-          } catch (err) {
-            console.error('[watch-sync] Error publicando nudge', roomId, err)
-          }
-        }
+       lastBroadcastedPlayback = currentPlayback
      } catch (error) {
-       console.error('[watch-sync] Error en sincronizacion on-demand de sala', roomId, error)
+       console.error('[watch-sync] Error en fallback check de sala', roomId, error)
      }
-   }, WATCH_SYNC_INTERVAL_MS) // Fallback check interval
+   }, WATCH_SYNC_INTERVAL_MS)
 
    roomSyncIntervals.set(roomId, interval)
 }
@@ -265,6 +279,8 @@ export const handleWatchWebSocket = (socket: WatchSocket, roomId: string, userId
            positionMs: Number(payload.positionMs ?? 0)
          })
 
+         // Publish immediately - this is the primary sync mechanism
+         // Event-driven is much smoother than polling-based sync
          await publishWatchState(roomId, playback)
          return
        }
@@ -301,7 +317,6 @@ export const handleWatchWebSocket = (socket: WatchSocket, roomId: string, userId
        stopRoomHeartbeat(roomId)
      }
    })
-
   void joinRoom()
 }
 
