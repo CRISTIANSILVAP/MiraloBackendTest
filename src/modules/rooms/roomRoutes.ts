@@ -11,7 +11,7 @@ export default async function roomRoutes(fastify: FastifyInstance) {
 
     fastify.get('/rooms', controller.getRooms)
     fastify.get('/rooms/users/:userId', controller.getRoomsByUser)
-    fastify.post('/rooms/create', controller.createRoom)
+    fastify.post('/rooms/create', { config: { rateLimit: { max: 10 } } }, controller.createRoom)
 
     fastify.post('/rooms/:roomId/users/:id/join', controller.joinRoom)
     fastify.post('/rooms/:roomId/users/:id/leave', controller.leaveRoom)

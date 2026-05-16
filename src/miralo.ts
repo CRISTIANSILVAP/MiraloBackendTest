@@ -4,6 +4,7 @@ import websocket from '@fastify/websocket'
 import { connectMongo, getMongoConnectionStatus } from './config/mongo.js'
 import { closeRedis, connectRedis, getRedisConnectionStatus } from './config/redis.js'
 import corsPlugin from './plugins/cors.js'
+import rateLimitPlugin from './plugins/rateLimit.js'
 import userRoutes from './modules/users/userRoutes.js'
 import roomRoutes from './modules/rooms/roomRoutes.js'
 import chatRoutes from './modules/chats/chatRoutes.js'
@@ -16,6 +17,7 @@ const app = Fastify({ logger: true })
 
 app.register(websocket)
 app.register(corsPlugin)
+app.register(rateLimitPlugin)
 app.register(userRoutes)
 app.register(roomRoutes)
 app.register(chatRoutes)
